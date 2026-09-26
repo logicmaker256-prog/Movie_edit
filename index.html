@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>動画カット＆結合ツール（超安定・無音版）</title>
+  <style>
+    body { font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 10px; line-height: 1.6; background: #f0f2f5; }
+    h1 { font-size: 20px; text-align: center; color: #333; margin-bottom: 5px; }
+    p.notice { text-align: center; color: #d9534f; font-size: 14px; font-weight: bold; margin-top: 0; margin-bottom: 15px; }
+    .tabs { display: flex; margin-bottom: 15px; }
+    .tab { flex: 1; padding: 12px; text-align: center; background: #ddd; cursor: pointer; font-weight: bold; border-radius: 8px 8px 0 0; border: 1px solid #ccc; border-bottom: none; }
+    .tab.active { background: #007bff; color: white; border-color: #007bff; }
+    .section { display: none; background: #fff; padding: 15px; border-radius: 0 0 8px 8px; border: 1px solid #ccc; border-top: none; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .section.active { display: block; }
+    .box { border: 1px dashed #aaa; padding: 15px; border-radius: 8px; margin-bottom: 15px; background: #fafafa; }
+    video { max-width: 100%; max-height: 50vh; display: block; margin-top: 10px; background: #000; border-radius: 4px; transition: all 0.3s; }
+    .controls { margin-top: 10px; display: flex; gap: 5px; align-items: center; flex-wrap: wrap; justify-content: center; }
+    button { padding: 10px 15px; cursor: pointer; color: white; border: none; border-radius: 4px; font-size: 15px; font-weight: bold; }
+    .btn-blue { background: #007bff; } .btn-green { background: #28a745; } .btn-red { background: #dc3545; }
+    .btn-gray { background: #6c757d; font-size: 13px; padding: 8px 10px; }
+    button:disabled { background: #ccc; cursor: not-allowed; }
+    input[type="number"] { width: 70px; padding: 8px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; text-align: center; }
+    .highlight { background: #e9ecef; padding: 10px; border-radius: 4px; margin-bottom: 10px; }
+    ul#mergeList, ul#captionList { list-style: none; padding: 0; margin: 10px 0; }
+    ul#mergeList li, ul#captionList li { background: #fff; padding: 10px; border: 1px solid #ddd; margin-bottom: 5px; border-radius: 4px; display: flex; flex-direction: column; gap: 10px; }
+    .li-header { display: flex; justify-content: space-between; align-items: center; font-weight: bold; word-break: break-all; }
+    .li-actions { display: flex; gap: 5px; justify-content: flex-end; }
+    .video-wrap { position: relative; display: block; }
+    #captionPreviewOverlay {
+      position: absolute; left: 0; right: 0; bottom: 6%; text-align: center;
+      color: #fff; font-weight: bold; font-size: 5vw; line-height: 1.3;
+      text-shadow: -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000,
+                   -2px 0 0 #000, 2px 0 0 #000, 0 -2px 0 #000, 0 2px 0 #000;
+      pointer-events: none; white-space: pre-wrap; padding: 0 4px;
+    }
+    input[type="text"].captionTextInput { flex: 1; min-width: 150px; padding: 8px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+  <h1>✂️ 動画編集ツール</h1>
+  <p class="notice">※再生エラー防止のため、完成した動画は「無音」になります</p>
+
+  <div class="tabs">
+    <div id="tabTrim" class="tab active" onclick="switchTab('trim')">✂️ 切り出し（カット）</div>
+    <div id="tabMerge" class="tab" onclick="switchTab('merge')">🔗 複数をつなげる（結合）</div>
+    <div id="tabCaption" class="tab" onclick="switchTab('caption')">🔤 テロップ入れ</div>
+  </div>
+
+  <!-- カット画面 -->
+  <div id="secTrim" class="section active">
+    <div class="box">
+      <label><b>1. 動画を選ぶ</b></label><br>
+      <input type="file" id="trimInput" accept="video/*" style="margin-top: 10px;">
+    </div>
+    <div class="box">
+      <label><b>2. カット範囲を決める</b></label>
+      <label style="display: block; margin-top: 10px; background: #fff3cd; padding: 10px; border-radius: 4px;">
+        <input type="checkbox" id="trimCropToggle" disabled> 上下をカットして「4:3」にする
+      </label>
+      <!-- 初めからミュート設定にしてエラーを防ぐ -->
+      <video id="trimVideo" controls playsinline muted></video>
+      <div class="controls">
+        <button id="trimBtnMinus" class="btn-gray">◀ 0.1秒戻る</button>
+        <button id="trimBtnPlus" class="btn-gray">0.1秒進む ▶</button>
+      </div>
+      <div class="highlight" style="margin-top: 15px;">
+        <div class="controls">
+          <button id="trimSetStart" class="btn-green">開始点にする</button>
+          <span><input type="number" id="trimStartTime" value="0" step="0.1"> 秒</span>
+        </div>
+        <div class="controls">
+          <button id="trimSetEnd" class="btn-red">終了点にする</button>
+          <span><input type="number" id="trimEndTime" value="0" step="0.1"> 秒</span>
+        </div>
+      </div>
+    </div>
+    <div class="box" style="text-align: center;">
+      <button id="trimExecBtn" class="btn-blue" style="width: 100%; padding: 15px;" disabled>指定範囲をカットして保存（無音）</button>
+      <p id="trimStatus" style="color: #007bff; font-weight: bold; margin-top: 10px;"></p>
+      <div id="trimResultArea"></div>
+    </div>
+  </div>
+
+  <!-- マージ画面 -->
+  <div id="secMerge" class="section">
+    <div class="box">
+      <label><b>1. 繋げたい動画を追加する</b></label><br>
+      <small>※複数ファイルをまとめて選ぶか、1つずつ追加してください</small><br>
+      <input type="file" id="mergeInput" accept="video/*" multiple style="margin-top: 10px;">
+    </div>
+    <div class="box">
+      <label><b>2. つなげる順番の確認</b></label>
+      <ul id="mergeList">
+        <li style="color: #666; text-align: center;">まだ動画が追加されていません</li>
+      </ul>
+    </div>
+    <video id="mergeVideo" playsinline muted style="display:none;"></video>
+    <div class="box" style="text-align: center;">
+      <button id="mergeExecBtn" class="btn-green" style="width: 100%; padding: 15px;" disabled>リストの動画を繋げて保存（無音）</button>
+      <p id="mergeStatus" style="color: #007bff; font-weight: bold; margin-top: 10px;"></p>
+      <div id="mergeResultArea"></div>
+    </div>
+  </div>
+
+  <!-- テロップ入れ画面 -->
+  <div id="secCaption" class="section">
+    <div class="box">
+      <label><b>1. 動画を選ぶ</b></label><br>
+      <input type="file" id="captionInput" accept="video/*" style="margin-top: 10px;">
+      <div class="video-wrap">
+        <video id="captionVideo" controls playsinline muted></video>
+        <div id="captionPreviewOverlay"></div>
+      </div>
+      <div class="controls">
+        <button id="captionBtnMinus" class="btn-gray">◀ 0.1秒戻る</button>
+        <button id="captionBtnPlus" class="btn-gray">0.1秒進む ▶</button>
+      </div>
+    </div>
+    <div class="box">
+      <label><b>2. テロップを追加する</b></label>
+      <small>※再生位置を動かして開始・終了の秒数を決めてから、文字を入力して追加してください</small>
+      <div class="highlight" style="margin-top: 10px;">
+        <div class="controls">
+          <button id="captionSetStart" class="btn-green">開始点にする</button>
+          <span><input type="number" id="captionStartTime" value="0" step="0.1"> 秒</span>
+        </div>
+        <div class="controls">
+          <button id="captionSetEnd" class="btn-red">終了点にする</button>
+          <span><input type="number" id="captionEndTime" value="0" step="0.1"> 秒</span>
+        </div>
+        <div class="controls" style="margin-top: 10px;">
+          <input type="text" id="captionText" class="captionTextInput" placeholder="表示する文字を入力（白文字＋黒縁取りで下部に表示）">
+        </div>
+        <div class="controls">
+          <button id="captionAddBtn" class="btn-blue" style="width: 100%;">＋ このテロップをリストに追加</button>
+        </div>
+      </div>
+    </div>
+    <div class="box">
+      <label><b>3. テロップ一覧</b></label>
+      <ul id="captionList">
+        <li style="color: #666; text-align: center;">まだテロップがありません</li>
+      </ul>
+    </div>
+    <div class="box" style="text-align: center;">
+      <button id="captionExecBtn" class="btn-blue" style="width: 100%; padding: 15px;" disabled>テロップを焼き込んで保存（無音）</button>
+      <p id="captionStatus" style="color: #007bff; font-weight: bold; margin-top: 10px;"></p>
+      <div id="captionResultArea"></div>
+    </div>
+  </div>
+
+  <script>
+    function switchTab(mode) {
+      const tabMap = { trim: ['tabTrim', 'secTrim'], merge: ['tabMerge', 'secMerge'], caption: ['tabCaption', 'secCaption'] };
+      Object.values(tabMap).forEach(([tabId, secId]) => {
+        document.getElementById(tabId).classList.remove('active');
+        document.getElementById(secId).classList.remove('active');
+      });
+      const [tabId, secId] = tabMap[mode];
+      document.getElementById(tabId).classList.add('active');
+      document.getElementById(secId).classList.add('active');
+    }
+
+    // ✂️ カット処理（無音・安定版）
+    const trimInput = document.getElementById('trimInput');
+    const trimVideo = document.getElementById('trimVideo');
+    const trimStartTime = document.getElementById('trimStartTime');
+    const trimEndTime = document.getElementById('trimEndTime');
+    const trimCropToggle = document.getElementById('trimCropToggle');
+    const trimExecBtn = document.getElementById('trimExecBtn');
+    let isTrimming = false;
+
+    trimInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      trimVideo.src = URL.createObjectURL(file);
+      trimVideo.onloadedmetadata = () => {
+        trimStartTime.value = 0; trimEndTime.value = trimVideo.duration.toFixed(1);
+        trimCropToggle.disabled = false; trimExecBtn.disabled = false;
+        document.getElementById('trimStatus').innerText = '準備完了';
+      };
+    });
+
+    trimCropToggle.addEventListener('change', () => {
+      if (trimCropToggle.checked) {
+        trimVideo.style.aspectRatio = trimVideo.videoWidth < trimVideo.videoHeight ? "3/4" : "4/3";
+        trimVideo.style.objectFit = "cover";
+      } else {
+        trimVideo.style.aspectRatio = "auto"; trimVideo.style.objectFit = "contain";
+      }
+    });
+
+    trimVideo.addEventListener('seeked', () => {
+      if (trimVideo.paused && !isTrimming) {
+        const p = trimVideo.play();
+        if (p !== undefined) p.then(() => { trimVideo.pause(); }).catch(()=>{});
+      }
+    });
+    
+    document.getElementById('trimBtnMinus').addEventListener('click', () => { if (!isTrimming && trimVideo.src) trimVideo.currentTime = Math.max(0, trimVideo.currentTime - 0.1); });
+    document.getElementById('trimBtnPlus').addEventListener('click', () => { if (!isTrimming && trimVideo.src) trimVideo.currentTime = Math.min(trimVideo.duration, trimVideo.currentTime + 0.1); });
+    document.getElementById('trimSetStart').addEventListener('click', () => { trimStartTime.value = trimVideo.currentTime.toFixed(1); });
+    document.getElementById('trimSetEnd').addEventListener('click', () => { trimEndTime.value = trimVideo.currentTime.toFixed(1); });
+
+    trimExecBtn.addEventListener('click', async () => {
+      const start = parseFloat(trimStartTime.value); const end = parseFloat(trimEndTime.value);
+      if (start >= end) { alert('開始時間は終了時間より前にしてください'); return; }
+      isTrimming = true; trimExecBtn.disabled = true;
+      document.getElementById('trimStatus').innerText = 'カット処理中...（画面を閉じないでください）';
+      document.getElementById('trimResultArea').innerHTML = '';
+
+      let sWidth = trimVideo.videoWidth, sHeight = trimVideo.videoHeight, sy = 0;
+      if (trimCropToggle.checked) {
+        const ratio = sWidth < sHeight ? (4/3) : (3/4);
+        const targetHeight = sWidth * ratio;
+        if (targetHeight < sHeight) { sHeight = targetHeight; sy = (trimVideo.videoHeight - sHeight) / 2; }
+      }
+
+      const MAX = 720; const scale = sWidth > MAX ? MAX / sWidth : 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(sWidth * scale); canvas.height = Math.floor(sHeight * scale);
+      const ctx = canvas.getContext('2d');
+      
+      // 映像ストリームのみを取得（音声を完全に排除して安定化）
+      const stream = canvas.captureStream(30); 
+      
+      // Androidで最も安定する形式を自動選択
+      const mimeType = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm';
+      const recorder = new MediaRecorder(stream, { mimeType: mimeType });
+      const chunks = [];
+      
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = () => {
+        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+        const url = URL.createObjectURL(new Blob(chunks, { type: mimeType }));
+        const a = document.createElement('a'); a.href = url; a.download = `trim_video.${ext}`;
+        a.innerText = `完成した動画を保存 (.${ext})`;
+        a.className = 'btn-green'; a.style.display = 'inline-block'; a.style.padding = '15px'; a.style.textDecoration = 'none';
+        document.getElementById('trimResultArea').appendChild(a);
+        document.getElementById('trimStatus').innerText = '完了！下のボタンから保存してください。';
+        isTrimming = false; trimExecBtn.disabled = false;
+      };
+
+      trimVideo.currentTime = start;
+      trimVideo.addEventListener('seeked', function onSeek() {
+        trimVideo.removeEventListener('seeked', onSeek);
+        if(!isTrimming) return;
+        recorder.start(); trimVideo.play();
+        const check = () => {
+          if (trimVideo.currentTime >= end || trimVideo.paused) { trimVideo.pause(); recorder.stop(); }
+          else { ctx.drawImage(trimVideo, 0, sy, sWidth, sHeight, 0, 0, canvas.width, canvas.height); requestAnimationFrame(check); }
+        };
+        requestAnimationFrame(check);
+      }, {once:true});
+    });
+
+    // 🔗 結合処理（無音・安定版）
+    let mergeFiles = [];
+    const mergeInput = document.getElementById('mergeInput');
+    const mergeListUI = document.getElementById('mergeList');
+    const mergeExecBtn = document.getElementById('mergeExecBtn');
+    const mergeVideo = document.getElementById('mergeVideo');
+
+    mergeInput.addEventListener('change', (e) => {
+      const files = Array.from(e.target.files);
+      if(files.length === 0) return;
+      mergeFiles.push(...files); mergeInput.value = ''; renderMergeList();
+    });
+
+    function renderMergeList() {
+      mergeListUI.innerHTML = '';
+      if (mergeFiles.length === 0) {
+        mergeListUI.innerHTML = '<li style="color: #666; text-align: center;">まだ動画が追加されていません</li>';
+        mergeExecBtn.disabled = true; return;
+      }
+      mergeFiles.forEach((file, index) => {
+        const li = document.createElement('li');
+        li.innerHTML = `
+          <div class="li-header"><span>${index + 1}. ${file.name}</span></div>
+          <div class="li-actions">
+            <button class="btn-gray" onclick="moveMerge(${index}, -1)" ${index === 0 ? 'disabled' : ''}>▲ 上へ</button>
+            <button class="btn-gray" onclick="moveMerge(${index}, 1)" ${index === mergeFiles.length - 1 ? 'disabled' : ''}>▼ 下へ</button>
+            <button class="btn-red" onclick="removeMerge(${index})">削除</button>
+          </div>
+        `;
+        mergeListUI.appendChild(li);
+      });
+      mergeExecBtn.disabled = mergeFiles.length < 2;
+    }
+
+    window.moveMerge = (index, dir) => { const target = index + dir; if (target < 0 || target >= mergeFiles.length) return; const temp = mergeFiles[index]; mergeFiles[index] = mergeFiles[target]; mergeFiles[target] = temp; renderMergeList(); };
+    window.removeMerge = (index) => { mergeFiles.splice(index, 1); renderMergeList(); };
+
+    mergeExecBtn.addEventListener('click', async () => {
+      if(mergeFiles.length < 2) return;
+      mergeExecBtn.disabled = true;
+      document.getElementById('mergeStatus').innerText = '結合中...（画面を閉じないでください）';
+      document.getElementById('mergeResultArea').innerHTML = '';
+
+      const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
+      let recorder; const chunks = []; let currentIndex = 0; let isFirstVideo = true;
+
+      const playNextFile = () => {
+        if (currentIndex >= mergeFiles.length) { recorder.stop(); return; }
+        document.getElementById('mergeStatus').innerText = `結合中...（${currentIndex + 1}本目 / ${mergeFiles.length}本中）`;
+        mergeVideo.src = URL.createObjectURL(mergeFiles[currentIndex]);
+        
+        mergeVideo.onloadedmetadata = () => {
+          if (isFirstVideo) {
+            let w = mergeVideo.videoWidth, h = mergeVideo.videoHeight;
+            const MAX = 720; const scale = w > MAX ? MAX / w : 1;
+            canvas.width = Math.floor(w * scale); canvas.height = Math.floor(h * scale);
+            
+            // 映像ストリームのみ取得
+            const stream = canvas.captureStream(30);
+            const mimeType = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm';
+            
+            recorder = new MediaRecorder(stream, { mimeType: mimeType });
+            recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+            recorder.onstop = () => {
+              const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+              const url = URL.createObjectURL(new Blob(chunks, { type: mimeType }));
+              const a = document.createElement('a'); a.href = url; a.download = `merged_video.${ext}`;
+              a.innerText = `結合した動画を保存 (.${ext})`;
+              a.className = 'btn-green'; a.style.display = 'inline-block'; a.style.padding = '15px'; a.style.textDecoration = 'none';
+              document.getElementById('mergeResultArea').appendChild(a);
+              document.getElementById('mergeStatus').innerText = '完了！下のボタンから保存してください。';
+              mergeExecBtn.disabled = false;
+            };
+            recorder.start(); isFirstVideo = false;
+          }
+          mergeVideo.play();
+          
+          const drawFrame = () => {
+            if (!mergeVideo.paused && !mergeVideo.ended) {
+              ctx.fillStyle = "black"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+              const sw = mergeVideo.videoWidth, sh = mergeVideo.videoHeight;
+              const drawScale = Math.min(canvas.width / sw, canvas.height / sh);
+              const dw = sw * drawScale, dh = sh * drawScale;
+              const dx = (canvas.width - dw) / 2, dy = (canvas.height - dh) / 2;
+              ctx.drawImage(mergeVideo, 0, 0, sw, sh, dx, dy, dw, dh);
+              requestAnimationFrame(drawFrame);
+            }
+          };
+          drawFrame();
+        };
+
+        mergeVideo.onended = () => { currentIndex++; playNextFile(); };
+      };
+      playNextFile();
+    });
+
+    // 🔤 テロップ入れ処理（白文字＋黒縁取り・下部表示・無音版）
+    const captionInput = document.getElementById('captionInput');
+    const captionVideo = document.getElementById('captionVideo');
+    const captionPreviewOverlay = document.getElementById('captionPreviewOverlay');
+    const captionStartTime = document.getElementById('captionStartTime');
+    const captionEndTime = document.getElementById('captionEndTime');
+    const captionTextInput = document.getElementById('captionText');
+    const captionAddBtn = document.getElementById('captionAddBtn');
+    const captionListUI = document.getElementById('captionList');
+    const captionExecBtn = document.getElementById('captionExecBtn');
+    let captionEntries = [];
+    let isCaptioning = false;
+    let captionVideoReady = false;
+
+    captionInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      captionVideo.src = URL.createObjectURL(file);
+      captionVideo.onloadedmetadata = () => {
+        captionStartTime.value = 0;
+        captionEndTime.value = captionVideo.duration.toFixed(1);
+        captionVideoReady = true;
+        updateCaptionExecState();
+        document.getElementById('captionStatus').innerText = '準備完了';
+      };
+    });
+
+    captionVideo.addEventListener('seeked', () => {
+      if (captionVideo.paused && !isCaptioning) {
+        const p = captionVideo.play();
+        if (p !== undefined) p.then(() => { captionVideo.pause(); }).catch(()=>{});
+      }
+      updateCaptionPreview();
+    });
+    captionVideo.addEventListener('timeupdate', updateCaptionPreview);
+
+    document.getElementById('captionBtnMinus').addEventListener('click', () => { if (!isCaptioning && captionVideo.src) captionVideo.currentTime = Math.max(0, captionVideo.currentTime - 0.1); });
+    document.getElementById('captionBtnPlus').addEventListener('click', () => { if (!isCaptioning && captionVideo.src) captionVideo.currentTime = Math.min(captionVideo.duration, captionVideo.currentTime + 0.1); });
+    document.getElementById('captionSetStart').addEventListener('click', () => { captionStartTime.value = captionVideo.currentTime.toFixed(1); });
+    document.getElementById('captionSetEnd').addEventListener('click', () => { captionEndTime.value = captionVideo.currentTime.toFixed(1); });
+
+    captionAddBtn.addEventListener('click', () => {
+      const start = parseFloat(captionStartTime.value);
+      const end = parseFloat(captionEndTime.value);
+      const text = captionTextInput.value.trim();
+      if (!text) { alert('表示する文字を入力してください'); return; }
+      if (isNaN(start) || isNaN(end) || start >= end) { alert('開始時間は終了時間より前にしてください'); return; }
+      captionEntries.push({ start, end, text });
+      captionEntries.sort((a, b) => a.start - b.start);
+      captionTextInput.value = '';
+      renderCaptionList();
+      updateCaptionExecState();
+      updateCaptionPreview();
+    });
+
+    function renderCaptionList() {
+      captionListUI.innerHTML = '';
+      if (captionEntries.length === 0) {
+        captionListUI.innerHTML = '<li style="color: #666; text-align: center;">まだテロップがありません</li>';
+        return;
+      }
+      captionEntries.forEach((entry, index) => {
+        const li = document.createElement('li');
+        const label = document.createElement('div');
+        label.className = 'li-header';
+        const span = document.createElement('span');
+        span.innerText = `${entry.start.toFixed(1)}秒 〜 ${entry.end.toFixed(1)}秒：${entry.text}`;
+        label.appendChild(span);
+        const actions = document.createElement('div');
+        actions.className = 'li-actions';
+        actions.innerHTML = `<button class="btn-red" onclick="removeCaption(${index})">削除</button>`;
+        li.appendChild(label);
+        li.appendChild(actions);
+        captionListUI.appendChild(li);
+      });
+    }
+
+    window.removeCaption = (index) => { captionEntries.splice(index, 1); renderCaptionList(); updateCaptionExecState(); updateCaptionPreview(); };
+
+    function updateCaptionExecState() {
+      captionExecBtn.disabled = !(captionVideoReady && captionEntries.length > 0);
+    }
+
+    function updateCaptionPreview() {
+      const t = captionVideo.currentTime;
+      const active = captionEntries.filter(e => t >= e.start && t < e.end).map(e => e.text);
+      captionPreviewOverlay.innerText = active.join('\n');
+    }
+
+    function wrapCaptionText(ctx, text, maxWidth) {
+      const lines = [];
+      let currentLine = '';
+      for (const ch of text) {
+        const testLine = currentLine + ch;
+        if (ctx.measureText(testLine).width > maxWidth && currentLine !== '') {
+          lines.push(currentLine);
+          currentLine = ch;
+        } else {
+          currentLine = testLine;
+        }
+      }
+      if (currentLine) lines.push(currentLine);
+      return lines;
+    }
+
+    function drawCaptionOverlay(ctx, canvasWidth, canvasHeight, time) {
+      const activeEntries = captionEntries.filter(e => time >= e.start && time < e.end);
+      if (activeEntries.length === 0) return;
+
+      const fontSize = Math.max(16, Math.floor(canvasWidth / 16));
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+      ctx.lineJoin = 'round';
+      ctx.miterLimit = 2;
+      ctx.lineWidth = Math.max(3, Math.floor(fontSize / 6));
+      ctx.strokeStyle = '#000000';
+      ctx.fillStyle = '#ffffff';
+
+      const maxTextWidth = canvasWidth * 0.9;
+      let allLines = [];
+      activeEntries.forEach(entry => { allLines = allLines.concat(wrapCaptionText(ctx, entry.text, maxTextWidth)); });
+
+      const lineHeight = fontSize * 1.3;
+      const bottomMargin = canvasHeight * 0.06;
+      let y = canvasHeight - bottomMargin - (allLines.length - 1) * lineHeight;
+
+      allLines.forEach(line => {
+        ctx.strokeText(line, canvasWidth / 2, y);
+        ctx.fillText(line, canvasWidth / 2, y);
+        y += lineHeight;
+      });
+    }
+
+    captionExecBtn.addEventListener('click', async () => {
+      if (captionEntries.length === 0) return;
+      isCaptioning = true; captionExecBtn.disabled = true;
+      document.getElementById('captionStatus').innerText = 'テロップ焼き込み中...（画面を閉じないでください）';
+      document.getElementById('captionResultArea').innerHTML = '';
+
+      const sWidth = captionVideo.videoWidth, sHeight = captionVideo.videoHeight;
+      const MAX = 720; const scale = sWidth > MAX ? MAX / sWidth : 1;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(sWidth * scale); canvas.height = Math.floor(sHeight * scale);
+      const ctx = canvas.getContext('2d');
+
+      // 映像ストリームのみを取得（音声を完全に排除して安定化）
+      const stream = canvas.captureStream(30);
+      const mimeType = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm';
+      const recorder = new MediaRecorder(stream, { mimeType: mimeType });
+      const chunks = [];
+
+      recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = () => {
+        const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+        const url = URL.createObjectURL(new Blob(chunks, { type: mimeType }));
+        const a = document.createElement('a'); a.href = url; a.download = `caption_video.${ext}`;
+        a.innerText = `完成した動画を保存 (.${ext})`;
+        a.className = 'btn-green'; a.style.display = 'inline-block'; a.style.padding = '15px'; a.style.textDecoration = 'none';
+        document.getElementById('captionResultArea').appendChild(a);
+        document.getElementById('captionStatus').innerText = '完了！下のボタンから保存してください。';
+        isCaptioning = false; captionExecBtn.disabled = false;
+      };
+
+      captionVideo.currentTime = 0;
+      captionVideo.addEventListener('seeked', function onSeek() {
+        captionVideo.removeEventListener('seeked', onSeek);
+        if (!isCaptioning) return;
+        recorder.start(); captionVideo.play();
+        const drawFrame = () => {
+          if (captionVideo.paused || captionVideo.ended || captionVideo.currentTime >= captionVideo.duration - 0.03) {
+            captionVideo.pause(); recorder.stop(); return;
+          }
+          ctx.drawImage(captionVideo, 0, 0, sWidth, sHeight, 0, 0, canvas.width, canvas.height);
+          drawCaptionOverlay(ctx, canvas.width, canvas.height, captionVideo.currentTime);
+          requestAnimationFrame(drawFrame);
+        };
+        requestAnimationFrame(drawFrame);
+      }, { once: true });
+    });
+  </script>
+</body>
+</html>
